@@ -193,10 +193,11 @@ public class KThread {
         
         
         currentThread.status = statusFinished;
+        //addLuo0
         KThread t=joiningQueue.nextThread();
         if (t != null){
-            readyQueue.waitForAccess(t);
-        }//addLuo
+            t.ready();
+        }//addLuo1
         sleep();
     }
     
@@ -280,9 +281,6 @@ public class KThread {
         // addLuo0
         boolean intStatus = Machine.interrupt().disable();
 
-        if (joiningQueue == null){
-            joiningQueue =ThreadedKernel.scheduler.newThreadQueue(false);;
-        }
         if (status != statusFinished){
             joiningQueue.waitForAccess(currentThread);
             currentThread.sleep();
@@ -412,6 +410,16 @@ public class KThread {
         private int which;
     }
     
+    private static class TestthreadA implements Runnable{
+        TestthreadA(){
+            
+        }
+        public void run(){
+            
+        }
+    }
+
+    
     /**
      * Tests whether this module is working.
      */
@@ -420,8 +428,20 @@ public class KThread {
         
         new KThread(new PingTest(1)).setName("forked thread").fork();
         new PingTest(0).run();
+        
         //addLuo0
-        waitForAccess
+        new KThread(new Runnable(){public void run(){
+            System.out.println("aaa");
+            KThread b = new KThread(new Runnable(){public void run(){
+                for (int i = 0 ; i<100 ; i++){
+                    System.out.println("bbb");
+                }
+            }});
+            b.fork();
+            b.join();
+            System.out.println("aaa");
+
+        }}).fork();
         //addLuo1
     }
     
@@ -449,8 +469,8 @@ public class KThread {
     private String name = "(unnamed thread)";
     private Runnable target;
     private TCB tcb;
-    private static ThreadQueue joiningQueue = null; //addLuo
-
+    private static ThreadQueue joiningQueue = ThreadedKernel.scheduler.newThreadQueue(false); //addLuo
+    
     /**
      * Unique identifer for this thread. Used to deterministically compare
      * threads.
