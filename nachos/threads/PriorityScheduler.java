@@ -2,9 +2,7 @@ package nachos.threads;
 
 import nachos.machine.*;
 
-import java.util.TreeSet;
-import java.util.HashSet;
-import java.util.Iterator;
+import java.util.ArrayList;
 
 /**
  * A scheduler that chooses threads based on their priorities.
@@ -107,7 +105,7 @@ public class PriorityScheduler extends Scheduler {
     /**
      * The maximum priority that a thread can have. Do not change this value.
      */
-    public static final int priorityMaximum = 7;    
+    public static final int priorityMaximum = 7;
 
     /**
      * Return the scheduling state of the specified thread.
@@ -121,6 +119,89 @@ public class PriorityScheduler extends Scheduler {
 
 	return (ThreadState) thread.schedulingState;
     }
+	
+    /**
+     * 
+     * Implements a heap. Since the heap must support the change of key value from outside this class,
+     * we do not use java's builtin functionalities.
+     *
+     */
+	protected class ThreadHeap{
+		public ThreadHeap(){
+			heap = new ArrayList<ThreadState>();
+		}
+		
+		public void swap(int index1, int index2){
+			heap.get(index1).heapIndex = index2;
+			heap.get(index2).heapIndex = index1;
+			ThreadState t = heap.get(index1);
+			heap.set(index1, heap.get(index2));
+			heap.set(index2, t);
+		}
+		
+		public void up(int index){
+			while (index > 0){
+				if (heap.get(index).compareTo(heap.get((index - 1) / 2)) >= 0)
+					break;
+				swap(index, (index - 1) / 2);
+				index = (index - 1) / 2;
+			}
+		}
+		
+		public void down(int index){
+			while (index * 2 + 2 < heap.size()){
+				if (heap.get(index * 2 + 1).compareTo(heap.get(index * 2 + 2)) < 0)
+					if (heap.get(index * 2 + 1).compareTo(heap.get(index)) < 0){
+						swap(index, index * 2 + 1);
+						index = index * 2 + 1;
+					}
+					else
+						break;
+				else
+					if (heap.get(index * 2 + 2).compareTo(heap.get(index)) < 0){
+						swap(index, index * 2 + 2);
+						index = index * 2 + 2;
+					}
+					else
+						break;
+			}
+			if (index * 2 + 1 < heap.size())
+				if (heap.get(index * 2 + 1).compareTo(heap.get(index)) < 0)
+					swap(index, index * 2 + 1);
+		}
+		
+		public ThreadState peek(){
+			if (heap.isEmpty())
+				return null;
+			while (heap.get(0).refresh())
+				down(0);
+			return heap.get(0);
+		}
+		
+		public ThreadState pop(){
+			if (heap.isEmpty())
+				return null;
+			while (heap.get(0).refresh())             // force the root element of the heap to recompute
+				down(0);
+			ThreadState ret = heap.get(0);
+			if (heap.size() == 1)
+				heap.clear();
+			else{
+				swap(0, heap.size() - 1);
+				heap.remove(heap.size() - 1);
+				down(0);
+			}
+			return ret;
+		}
+		
+		public void push(ThreadState state){
+			state.heapIndex = heap.size();
+			heap.add(state);
+			up(heap.size() - 1);
+		}
+		
+		ArrayList<ThreadState> heap = null;
+	}
 
     /**
      * A <tt>ThreadQueue</tt> that sorts threads by priority.
@@ -128,6 +209,7 @@ public class PriorityScheduler extends Scheduler {
     protected class PriorityQueue extends ThreadQueue {
 	PriorityQueue(boolean transferPriority) {
 	    this.transferPriority = transferPriority;
+	    heap = new ThreadHeap();
 	}
 
 	public void waitForAccess(KThread thread) {
@@ -142,8 +224,18 @@ public class PriorityScheduler extends Scheduler {
 
 	public KThread nextThread() {
 	    Lib.assertTrue(Machine.interrupt().disabled());
-	    // implement me
-	    return null;
+	    if (threadHoldingResource != null){
+	    	threadHoldingResource.setDirtyBit(priorityMinimum - 1);
+	    	threadHoldingResource = null;
+	    }
+	    ThreadState t = heap.pop();
+		// System.out.print("Queue " + toString() + ": thread with highest priority popped: " + (t == null ? "null" : t.thread.toString()) + "\n");
+	    if (t == null)
+	    	return null;
+	    else{
+		    t.waitQueue = null;
+	    	return t.thread;
+	    }
 	}
 
 	/**
@@ -154,13 +246,23 @@ public class PriorityScheduler extends Scheduler {
 	 *		return.
 	 */
 	protected ThreadState pickNextThread() {
-	    // implement me
-	    return null;
+		// System.out.print("Queue " + toString() + ": pick next thread\n");
+		ThreadState ret = heap.peek();
+		// System.out.print("Queue " + toString() + ": thread with highest priority peeked: " + (ret == null ? "null" : ret.thread.toString()) + "\n");
+		return ret;
 	}
 	
 	public void print() {
 	    Lib.assertTrue(Machine.interrupt().disabled());
 	    // implement me (if you want)
+	}
+	
+	public int getEffectivePriority(){
+		ThreadState t = heap.peek();
+		if (t == null)
+			return priorityMinimum - 1;
+		else
+			return t.getEffectivePriority();
 	}
 
 	/**
@@ -168,6 +270,10 @@ public class PriorityScheduler extends Scheduler {
 	 * threads to the owning thread.
 	 */
 	public boolean transferPriority;
+	
+	public ThreadHeap heap = null;
+	
+	public ThreadState threadHoldingResource = null;
     }
 
     /**
@@ -177,7 +283,7 @@ public class PriorityScheduler extends Scheduler {
      *
      * @see	nachos.threads.KThread#schedulingState
      */
-    protected class ThreadState {
+    protected class ThreadState implements Comparable<ThreadState>{
 	/**
 	 * Allocate a new <tt>ThreadState</tt> object and associate it with the
 	 * specified thread.
@@ -186,6 +292,7 @@ public class PriorityScheduler extends Scheduler {
 	 */
 	public ThreadState(KThread thread) {
 	    this.thread = thread;
+	    queuesHeld = new ArrayList<PriorityQueue>();
 	    
 	    setPriority(priorityDefault);
 	}
@@ -205,8 +312,36 @@ public class PriorityScheduler extends Scheduler {
 	 * @return	the effective priority of the associated thread.
 	 */
 	public int getEffectivePriority() {
-	    // implement me
-	    return priority;
+		refresh();
+	    return priorityCache;
+	}
+	
+	/**
+	 *  recomputes the priority cache, returns true if the cache is changed.
+	 *
+	 */
+	public boolean refresh(){
+		if (!dirtyBit)
+			return false;
+		int k = 0;
+		int old = priorityCache;
+		priorityCache = priority;
+		dirtyBit = false;
+		while (k < queuesHeld.size()){
+			if (queuesHeld.get(k).threadHoldingResource != this)       // Lazy-deletion. When as thread releases a resource, it does not
+				if (k != queuesHeld.size())                            // immediately remove the corresponding queue from its record.
+					queuesHeld.set(k, queuesHeld.remove(queuesHeld.size() - 1));
+				else
+					queuesHeld.remove(queuesHeld.size() - 1);
+			else{
+				int t = queuesHeld.get(k).getEffectivePriority();
+				if (t > priorityCache)
+					priorityCache = t;
+				k++;
+			}
+		}
+		// System.out.print("Thread " + this.thread.toString() + ": cache refreshed, effective priority " + old + " -> " + priorityCache + "\n");
+		return (priorityCache != old);
 	}
 
 	/**
@@ -218,9 +353,47 @@ public class PriorityScheduler extends Scheduler {
 	    if (this.priority == priority)
 		return;
 	    
-	    this.priority = priority;
-	    
-	    // implement me
+		// System.out.print("Thread " + this.thread.toString() + ": priority set to " + priority + "\n");
+	    if (priority >= this.priority){                   // may only cause effective priority to increase
+		    this.priority = priority;
+		    receiveDonation(priority);
+	    }
+	    else if (this.priority == priorityCache){         // may only cause effective priority to decrease
+	    	setDirtyBit(priorityCache);
+	    	this.priority = priority;
+	    }
+	}
+	
+	public void receiveDonation(int priority){
+		// System.out.print("Thread " + this.thread.toString() + ": donated priority " + priority + " received\n");
+		if (priority > priorityCache){                              // priority cache increased
+			// System.out.print("Thread " + this.thread.toString() + ": cached effective priority " + priorityCache + " -> " + priority + "\n");
+			// System.out.print("Thread " + this.thread.toString() + ": dirty bit cleared\n");
+			priorityCache = priority;
+			dirtyBit = false;
+			if (waitQueue != null){
+				waitQueue.heap.up(heapIndex);
+				if ((waitQueue.transferPriority) && (waitQueue.threadHoldingResource != null))
+					waitQueue.threadHoldingResource.receiveDonation(priority);
+			}
+		}
+		else if ((priority == priorityCache) && (dirtyBit)){         // priority cache not increased, but could clear dirty bit
+			// System.out.print("Thread " + this.thread.toString() + ": dirty bit cleared\n");
+			dirtyBit = false;
+			if (waitQueue != null)
+				if ((waitQueue.transferPriority) && (waitQueue.threadHoldingResource != null))
+					waitQueue.threadHoldingResource.receiveDonation(priority);
+		}
+	}
+	
+	public void setDirtyBit(int priority){                           // set dirty bit only when the argument matchs the priority cache
+		// System.out.print("Thread " + this.thread.toString() + ": diry bit set\n");
+		if ((!dirtyBit) && ((priority == priorityCache) || (priority == priorityMinimum - 1))){
+			dirtyBit = true;
+			if (waitQueue != null)
+				if ((waitQueue.transferPriority) && (waitQueue.threadHoldingResource != null))
+					waitQueue.threadHoldingResource.setDirtyBit(priority);
+		}
 	}
 
 	/**
@@ -236,7 +409,15 @@ public class PriorityScheduler extends Scheduler {
 	 * @see	nachos.threads.ThreadQueue#waitForAccess
 	 */
 	public void waitForAccess(PriorityQueue waitQueue) {
-	    // implement me
+		// System.out.print("Thread " + this.thread.toString() + ": put in queue " + waitQueue.toString() + "\n");
+		time = Machine.timer().getTime();
+		// System.out.print(time + "\n");
+		this.waitQueue = waitQueue;
+		refresh();
+		waitQueue.heap.push(this);
+		if ((waitQueue.transferPriority) && (waitQueue.threadHoldingResource != null)){
+			waitQueue.threadHoldingResource.receiveDonation(priorityCache);
+		}
 	}
 
 	/**
@@ -250,12 +431,45 @@ public class PriorityScheduler extends Scheduler {
 	 * @see	nachos.threads.ThreadQueue#nextThread
 	 */
 	public void acquire(PriorityQueue waitQueue) {
-	    // implement me
+		// System.out.print("Thread " + this.thread.toString() + ": aquried resource guarded by queue " + waitQueue.toString() + "\n");
+		waitQueue.threadHoldingResource = this;
+		ThreadState t = waitQueue.heap.peek();
+		if (t != null)
+			this.receiveDonation(t.getEffectivePriority());
 	}	
+	
+	public int compareTo(ThreadState other){
+		if (priorityCache > other.priorityCache)
+			return -1;
+		else if (priorityCache < other.priorityCache)
+			return 1;
+		else if (time < other.time)
+			return -1;
+		else if (time > other.time)
+			return 1;
+		else
+			return thread.compareTo(other.thread);
+	}
 
 	/** The thread with which this object is associated. */	   
 	protected KThread thread;
 	/** The priority of the associated thread. */
 	protected int priority;
+	
+	protected int priorityCache;
+	
+	protected boolean dirtyBit;
+	
+	// each thread should remember its position in its waitQueue's heap
+	// so it can raise itself up the heap when its priority cache increases
+	protected int heapIndex;
+	
+	protected long time;
+	
+	protected PriorityQueue waitQueue;
+	
+	// all the queues which are guarding some resource
+	// that this thread is holding
+	protected ArrayList<PriorityQueue> queuesHeld = null;
     }
 }

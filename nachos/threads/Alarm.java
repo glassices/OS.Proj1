@@ -15,6 +15,7 @@ public class Alarm {
      * alarm.
      */
     public Alarm() {
+    sleepingThreads = new java.util.PriorityQueue<TimeThreadPair>();
 	Machine.timer().setInterruptHandler(new Runnable() {
 		public void run() { timerInterrupt(); }
 	    });
@@ -27,7 +28,18 @@ public class Alarm {
      * that should be run.
      */
     public void timerInterrupt() {
-	KThread.currentThread().yield();
+    boolean intStatus = Machine.interrupt().disable();
+    
+    TimeThreadPair p = sleepingThreads.peek();
+    long time = Machine.timer().getTime();
+    while ((p != null) && (p.time <= time)){
+    	p.thread.ready();
+    	sleepingThreads.poll();
+    	p = sleepingThreads.peek();
+    }
+	KThread.yield();
+	
+    Machine.interrupt().restore(intStatus);
     }
 
     /**
@@ -45,9 +57,33 @@ public class Alarm {
      * @see	nachos.machine.Timer#getTime()
      */
     public void waitUntil(long x) {
-	// for now, cheat just to get something working (busy waiting is bad)
-	long wakeTime = Machine.timer().getTime() + x;
-	while (wakeTime > Machine.timer().getTime())
-	    KThread.yield();
+    boolean intStatus = Machine.interrupt().disable();
+    
+    long wakeTime = Machine.timer().getTime() + x;
+    sleepingThreads.add(new TimeThreadPair(wakeTime, KThread.currentThread()));
+    KThread.sleep();
+	
+    Machine.interrupt().restore(intStatus);
     }
+    
+    private class TimeThreadPair implements Comparable<TimeThreadPair>{
+    	public TimeThreadPair(long time, KThread thread){
+    		this.time = time;
+    		this.thread = thread;
+    	}
+    	
+		public int compareTo(TimeThreadPair other) {
+			if (time < other.time)
+				return -1;
+			else if (time > other.time)
+				return 1;
+			else
+				return thread.compareTo(other.thread);
+		}
+    	
+    	public long time;
+    	public KThread thread;
+    }
+   
+    private java.util.PriorityQueue<TimeThreadPair> sleepingThreads = null;
 }
