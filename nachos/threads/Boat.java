@@ -5,9 +5,10 @@ public class Boat
 {
     static BoatGrader bg;
     
+    static int counter;
+    
+    
     static Lock l1;
-    static Lock l2;
-    static Lock l3;
     static Condition c1;
     static Condition c2;
     static Condition c3;
@@ -21,17 +22,35 @@ public class Boat
     
     static int childrenOnOahu;
     static int adultOnOahu;
-    static int childrenOnMolakai;
-    static int adultOnMolakai;
+    static int childrenOnMolokai;
+    static int adultOnMolokai;
+    static boolean isNotFinished;
+
     
     public static void selfTest()
     {
         BoatGrader b = new BoatGrader();
      
-
-        System.out.println("\n ***Testing Boats with only 2 children***");
-        begin(0, 2, b);
         
+        System.out.println("\n ***Testing Boats with 4 children and 1 adults***");
+        begin(1, 4, b);
+        System.out.println("\n ***Testing Boats with 0 children and 2 adults***");
+        begin(2, 0, b);
+        System.out.println("\n ***Testing Boats with 1 children and 1 adults***");
+        begin(1, 1, b);
+        System.out.println("\n ***Testing Boats with 1 children and 0 adults***");
+        begin(0, 1, b);
+        System.out.println("\n ***Testing Boats with 0 children and 1 adults***");
+        begin(1, 0, b);
+        System.out.println("\n ***Testing Boats with 3 children and 0 adults***");
+        begin(0, 3, b);
+        
+        for (int itt=0;itt<10;itt++){
+            for (int jtt=0;jtt<10;jtt++){
+                begin(itt, jtt, b);
+
+            }
+        }
         //	System.out.println("\n ***Testing Boats with 2 children, 1 adult***");
         //  	begin(1, 2, b);
         
@@ -50,30 +69,53 @@ public class Boat
         c1= new Condition(l1);
         c2= new Condition(l1);
         c3= new Condition(l1);
-        
+        counter=adults+children;
         
         Oahu = 0;
         Molokai = 1;
         
-        childrenOnMolakai=0;
+        childrenOnMolokai=0;
         childrenOnOahu= children;
-        adultOnMolakai=0;
+        adultOnMolokai=0;
         adultOnOahu = adults;
+        whereIsTheBoat = 0;
+        isNotFinished = true;
         
         
         // Instantiate global variables here
         
         // Create threads here. See section 3.4 of the Nachos for Java
         // Walkthrough linked from the projects page.
-        
-        Runnable r = new Runnable() {
-            public void run() {
-                SampleItinerary();
+        if (children>1){
+            Runnable ra = new Runnable() {
+                public void run() {
+                    AdultItinerary();
+                }
+            };
+            Runnable rc = new Runnable() {
+                public void run() {
+                    ChildItinerary();
+                }
+            };
+            for(int i =0 ;i<adults;i++){
+                KThread t = new KThread(ra);
+                t.fork();
             }
-        };
-        KThread t = new KThread(r);
-        t.setName("Sample Boat Thread");
-        t.fork();
+            for(int i =0 ;i<children;i++){
+                KThread t = new KThread(rc);
+                t.fork();
+            }
+            while(counter>0){
+                KThread.yield();
+            }
+        }else if(children == 1 && adults == 0){
+            bg.ChildRowToMolokai();
+
+        }else if(children == 0 && adults == 1){
+            bg.AdultRowToMolokai();
+        }else {
+            System.out.println("not possible");
+        }
         
     }
     
@@ -87,7 +129,8 @@ public class Boat
         int place=0;
 
         l1.acquire();
-        while (childrenOnMolakai == 0 || whereIsTheBoat == Molokai || howManyPeopleOnBoat !=0 ){
+        while (childrenOnMolokai == 0 || whereIsTheBoat == Molokai || howManyPeopleOnBoat !=0 ){
+            c1.wake();
             c2.sleep();
         }
         howManyPeopleOnBoat=2;
@@ -98,11 +141,11 @@ public class Boat
         
         whereIsTheBoat = Molokai;
         howManyPeopleOnBoat=0;
-        AdultRideToMolokai++;
+        adultOnMolokai++;
         c3.wake();
         l1.release();
         
-        
+        counter--;
 
         
         /* This is where you should put your solutions. Make calls
@@ -119,23 +162,68 @@ public class Boat
         //DO NOT PUT ANYTHING ABOVE THIS LINE.
         int place=0;
 
-        boolean isNotFinished = true;
+        l1.acquire();
         while (isNotFinished){
-            l1.acquire();
-            if (place==Oahu){
-                while(childrenOnMolakai !=0 && adultOnOahu !=0){
-                    c1.sleep();
+            if (isNotFinished){
+                if (place==Oahu){
+                    while((childrenOnMolokai !=0 && adultOnOahu !=0 && howManyPeopleOnBoat ==0) || whereIsTheBoat == Molokai){
+
+                        c2.wake();
+                        c1.sleep();
+                        
+                    }
+                    if (isNotFinished){
+                        
+                        int myOrderOnBoat= howManyPeopleOnBoat+1;
+                        howManyPeopleOnBoat++;
+                        if (myOrderOnBoat==1){
+                            childrenOnOahu--;
+                            childrenOnMolokai++;
+                            bg.ChildRowToMolokai();
+                            place= Molokai;
+                            c1.wake();
+                            c3.sleep();
+                        }else if (isNotFinished){
+                            childrenOnOahu--;
+                            childrenOnMolokai++;
+                            bg.ChildRideToMolokai();
+                            place=Molokai;
+                            whereIsTheBoat= Molokai;
+                            howManyPeopleOnBoat = 0;
+                            if(childrenOnOahu==0 && adultOnOahu ==0){
+                                isNotFinished=false;
+                                c3.wake();
+                            }else{
+                                c3.wake();
+                                c3.sleep();
+                            }
+                        }
+                    }
                 }
-                myOrderOnBoat= howManyPeopleOnBoat+1;
-                howManyPeopleOnBoat++;
-                if (howManyPeopleOnBoat==1){
-                    childrenOnOahu--;
-                    childrenOnMolakai++;
-                    bg.ChildrenRowToMolokai();
+                else{ //place = Molokai
+                    while( whereIsTheBoat == Oahu){
+                        c1.sleep();
+                    }
+                    childrenOnMolokai--;
+                    childrenOnOahu++;
+                    bg.ChildRowToOahu();
+                    whereIsTheBoat=Oahu;
+                    place= Oahu;
+                    if (adultOnOahu==0){
+                    c1.wake();
+                    }else
+                    {
+                        c2.wake();
+                    }
+                    c1.sleep();
+                    
                     
                 }
             }
         }
+        c3.wake();
+        counter--;
+        l1.release();
     }
     
     static void SampleItinerary()
@@ -152,3 +240,4 @@ public class Boat
     }
     
 }
+//problem 6 solved
